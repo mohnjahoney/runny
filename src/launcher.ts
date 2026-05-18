@@ -6,6 +6,11 @@ export interface LaunchResult {
   pid?: number;
 }
 
+export interface LaunchHandle {
+  pid: number;
+  wait: Promise<LaunchResult>;
+}
+
 function attachShutdownHandlers(child: ChildProcess): () => void {
   let shuttingDown = false;
 
@@ -32,32 +37,39 @@ function attachShutdownHandlers(child: ChildProcess): () => void {
   };
 }
 
-export function launchPlan(plan: LaunchPlan, cwd: string): Promise<LaunchResult> {
-  return new Promise((resolve) => {
-    const [command, ...args] = plan.argv;
-    const child = spawn(command, args, {
-      cwd,
-      stdio: "inherit",
-      env: process.env,
-    });
+export function launchPlan(plan: LaunchPlan, cwd: string): LaunchHandle {
+  const [command, ...args] = plan.argv;
+  const child = spawn(command, args, {
+    cwd,
+    stdio: "inherit",
+    env: process.env,
+  });
 
-    const detachHandlers = attachShutdownHandlers(child);
+  const pid = child.pid;
+  if (pid === undefined) {
+    throw new Error("Failed to obtain child process PID");
+  }
 
+  const detachHandlers = attachShutdownHandlers(child);
+
+  const wait = new Promise<LaunchResult>((resolve) => {
     child.on("error", (error) => {
       detachHandlers();
       console.error(`runny: failed to start process: ${error.message}`);
-      resolve({ exitCode: 1 });
+      resolve({ exitCode: 1, pid });
     });
 
     child.on("exit", (code, signal) => {
       detachHandlers();
 
       if (signal === "SIGINT" || signal === "SIGTERM") {
-        resolve({ exitCode: 130, pid: child.pid });
+        resolve({ exitCode: 130, pid });
         return;
       }
 
-      resolve({ exitCode: code ?? 1, pid: child.pid });
+      resolve({ exitCode: code ?? 1, pid });
     });
   });
+
+  return { pid, wait };
 }
