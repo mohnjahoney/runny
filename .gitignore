@@ -2,3 +2,10 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Local planning docs (not versioned)
+README.md
+SPEC.md
+TASKS.md
+GUIDANCE.md
+MAIN_PROMPT.md
