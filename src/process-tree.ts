@@ -43,3 +43,23 @@ export function isProcessAlive(pid: number): boolean {
     return false;
   }
 }
+
+function signalPids(pids: number[], signal: NodeJS.Signals): void {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // Process may already be gone.
+    }
+  }
+}
+
+export async function killProcessTree(rootPid: number): Promise<void> {
+  const pids = await collectProcessTree(rootPid);
+  signalPids(pids, "SIGTERM");
+
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  const remaining = pids.filter((pid) => isProcessAlive(pid));
+  signalPids(remaining, "SIGKILL");
+}

@@ -1,9 +1,21 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
+import {
+  filterProjects,
+  killProject,
+  logsHint,
+  nextSortMode,
+  openProjectInBrowser,
+  restartProject,
+  sortModeLabel,
+  sortProjects,
+  type SortMode,
+} from "../actions/project-actions.js";
 import { formatUptime } from "../format.js";
 import { formatPorts } from "../ports.js";
 import type { RegistryEntry } from "../registry.js";
 import { getRunningProjects } from "../registry.js";
+
 const REFRESH_MS = 1_500;
 
 function truncate(value: string, max: number): string {
@@ -34,27 +46,63 @@ function ProjectRow({
 
 export function Dashboard(): React.ReactElement {
   const { exit } = useApp();
-  const [projects, setProjects] = useState<RegistryEntry[]>([]);
+  const [allProjects, setAllProjects] = useState<RegistryEntry[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [tick, setTick] = useState(0);
+  const [sortMode, setSortMode] = useState<SortMode>("uptime-desc");
+  const [filterQuery, setFilterQuery] = useState("");
+  const [filterMode, setFilterMode] = useState(false);
+  const [status, setStatus] = useState("");
 
   const refresh = (): void => {
-    const running = getRunningProjects();
-    setProjects(running);
-    setSelectedIndex((index) =>
-      running.length === 0 ? 0 : Math.min(index, running.length - 1),
-    );
-    setTick((value) => value + 1);
+    setAllProjects(getRunningProjects());
   };
+
+  const projects = useMemo(() => {
+    const filtered = filterProjects(allProjects, filterQuery);
+    return sortProjects(filtered, sortMode);
+  }, [allProjects, filterQuery, sortMode]);
+
+  useEffect(() => {
+    setSelectedIndex((index) =>
+      projects.length === 0 ? 0 : Math.min(index, projects.length - 1),
+    );
+  }, [projects.length, filterQuery, sortMode]);
 
   useEffect(() => {
     refresh();
     const interval = setInterval(refresh, REFRESH_MS);
-
     return () => clearInterval(interval);
   }, []);
 
+  const runAction = (action: () => Promise<string> | string): void => {
+    void (async () => {
+      try {
+        const message = await action();
+        setStatus(message);
+        refresh();
+      } catch (error: unknown) {
+        const text = error instanceof Error ? error.message : String(error);
+        setStatus(`error: ${text}`);
+      }
+    })();
+  };
+
   useInput((input, key) => {
+    if (filterMode) {
+      if (key.return || key.escape) {
+        setFilterMode(false);
+        return;
+      }
+      if (key.backspace || key.delete) {
+        setFilterQuery((value) => value.slice(0, -1));
+        return;
+      }
+      if (input && input.length === 1 && !key.ctrl && !key.meta) {
+        setFilterQuery((value) => value + input);
+      }
+      return;
+    }
+
     if (input === "q" || (key.ctrl && input === "c")) {
       exit();
       return;
@@ -62,6 +110,28 @@ export function Dashboard(): React.ReactElement {
 
     if (input === "r") {
       refresh();
+      setStatus("refreshed");
+      return;
+    }
+
+    if (input === "s") {
+      setSortMode((mode) => {
+        const next = nextSortMode(mode);
+        setStatus(`sort: ${sortModeLabel(next)}`);
+        return next;
+      });
+      return;
+    }
+
+    if (input === "f") {
+      setFilterMode(true);
+      setStatus("filter: type to search, enter to apply");
+      return;
+    }
+
+    if (input === "/") {
+      setFilterQuery("");
+      setStatus("filter cleared");
       return;
     }
 
@@ -74,15 +144,47 @@ export function Dashboard(): React.ReactElement {
       setSelectedIndex((index) =>
         projects.length === 0 ? 0 : Math.min(projects.length - 1, index + 1),
       );
+      return;
+    }
+
+    const selected = projects[selectedIndex];
+    if (!selected) {
+      return;
+    }
+
+    if (input === "x") {
+      runAction(() => killProject(selected));
+      return;
+    }
+
+    if (input === "R") {
+      runAction(() => restartProject(selected));
+      return;
+    }
+
+    if (input === "o") {
+      runAction(() => openProjectInBrowser(selected));
+      return;
+    }
+
+    if (input === "l") {
+      setStatus(logsHint(selected));
     }
   });
 
   const selected = projects[selectedIndex];
+  const filterLabel = filterQuery ? `filter: "${filterQuery}"` : "filter: off";
 
   return (
     <Box flexDirection="column">
       <Text bold>runny dashboard</Text>
-      <Text dimColor>q quit · r refresh · ↑↓/jk navigate · auto-refresh {REFRESH_MS / 1000}s</Text>
+      <Text dimColor>
+        q quit · r refresh · x kill · R restart · o open · l logs · s sort · f
+        filter · / clear
+      </Text>
+      <Text dimColor>
+        ↑↓/jk navigate · sort: {sortModeLabel(sortMode)} · {filterLabel}
+      </Text>
       <Text> </Text>
       <Text bold>
         {"  "}
@@ -91,7 +193,9 @@ export function Dashboard(): React.ReactElement {
       </Text>
 
       {projects.length === 0 ? (
-        <Text dimColor>no active projects — run `runny` in a project directory</Text>
+        <Text dimColor>
+          no matching projects — run `runny` in a project directory
+        </Text>
       ) : (
         projects.map((entry, index) => (
           <ProjectRow
@@ -109,9 +213,11 @@ export function Dashboard(): React.ReactElement {
           <Text dimColor>cwd: {selected.cwd}</Text>
           <Text dimColor>command: {selected.command}</Text>
         </Box>
-      ) : (
-        <Text dimColor>tick: {tick}</Text>
-      )}
+      ) : null}
+      {status ? <Text color="yellow">{status}</Text> : null}
+      {filterMode ? (
+        <Text color="magenta">filter&gt; {filterQuery}_</Text>
+      ) : null}
     </Box>
   );
 }

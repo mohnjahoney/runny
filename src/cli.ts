@@ -3,18 +3,13 @@
 import { printStartup } from "./debug.js";
 import { inferLaunchPlan } from "./inference.js";
 import { printProjectList } from "./list.js";
-import { launchPlan } from "./launcher.js";
-import { formatPorts, watchPorts } from "./ports.js";
+import { runProjectSession } from "./run-session.js";
 import { detectProjectContext } from "./project.js";
 import {
   loadRegistry,
-  markEntryStopped,
   pruneStaleEntries,
   saveRegistry,
-  updateEntry,
-  upsertRunningEntry,
 } from "./registry.js";
-import { notifyTuiRefresh } from "./tui/singleton.js";
 import { getVersion } from "./version.js";
 
 function printHelp(): void {
@@ -112,38 +107,7 @@ export async function main(
   console.log(`starting: ${plan.command}`);
   console.log("");
 
-  const handle = launchPlan(plan, project.cwd);
-  const entry = upsertRunningEntry({
-    name: project.name,
-    cwd: project.cwd,
-    command: plan.command,
-    kind: plan.kind,
-    pid: handle.pid,
-  });
-
-  notifyTuiRefresh();
-
-  console.log(`pid: ${handle.pid}`);
-
-  const portWatcher = watchPorts({
-    rootPid: handle.pid,
-    onUpdate: (ports) => {
-      updateEntry(entry.id, { ports });
-      console.log(`ports: ${formatPorts(ports)}`);
-      notifyTuiRefresh();
-    },
-  });
-
-  const result = await handle.wait;
-  portWatcher.stop();
-  markEntryStopped(entry.id);
-  notifyTuiRefresh();
-
-  if (result.pid && debug) {
-    console.log(`[debug] child exited (pid was ${result.pid})`);
-  }
-
-  return result.exitCode;
+  return runProjectSession(project.cwd);
 }
 
 main()
