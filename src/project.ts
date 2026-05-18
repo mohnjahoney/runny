@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { packageJsonName } from "./inference.js";
 
 export interface ProjectContext {
   cwd: string;
@@ -6,6 +7,7 @@ export interface ProjectContext {
 }
 
 export function detectProjectContext(cwd: string = process.cwd()): ProjectContext {
-  const name = basename(cwd) || "unknown";
+  const fromPackage = packageJsonName(cwd);
+  const name = fromPackage || basename(cwd) || "unknown";
   return { cwd, name };
 }
