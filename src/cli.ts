@@ -14,6 +14,7 @@ import {
   updateEntry,
   upsertRunningEntry,
 } from "./registry.js";
+import { notifyTuiRefresh } from "./tui/singleton.js";
 import { getVersion } from "./version.js";
 
 function printHelp(): void {
@@ -21,6 +22,7 @@ function printHelp(): void {
 
 Usage:
   runny              Detect project and launch dev server
+  runny dashboard    Open live TUI dashboard (singleton)
   runny list         Show active projects from the registry
   runny --dry-run    Detect project and print launch command only
   runny --debug      Include debug details
@@ -36,6 +38,7 @@ function parseArgs(argv: string[]): {
   help: boolean;
   dryRun: boolean;
   list: boolean;
+  dashboard: boolean;
 } {
   const debug =
     argv.includes("--debug") ||
@@ -43,8 +46,9 @@ function parseArgs(argv: string[]): {
     process.env.RUNNY_DEBUG === "1";
   const help = argv.includes("--help") || argv.includes("-h");
   const dryRun = argv.includes("--dry-run") || argv.includes("-n");
-  const list = argv[0] === "list" || argv.includes("list");
-  return { debug, help, dryRun, list };
+  const list = argv[0] === "list";
+  const dashboard = argv[0] === "dashboard" || argv[0] === "ui";
+  return { debug, help, dryRun, list, dashboard };
 }
 
 function restoreRegistryOnStartup(debug: boolean): void {
@@ -61,7 +65,7 @@ function restoreRegistryOnStartup(debug: boolean): void {
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<number> {
-  const { debug, help, dryRun, list } = parseArgs(argv);
+  const { debug, help, dryRun, list, dashboard } = parseArgs(argv);
 
   if (help) {
     printHelp();
@@ -71,6 +75,11 @@ export async function main(
   if (list) {
     printProjectList();
     return 0;
+  }
+
+  if (dashboard) {
+    const { runDashboard } = await import("./tui/run.js");
+    return runDashboard();
   }
 
   restoreRegistryOnStartup(debug);
@@ -112,6 +121,8 @@ export async function main(
     pid: handle.pid,
   });
 
+  notifyTuiRefresh();
+
   console.log(`pid: ${handle.pid}`);
 
   const portWatcher = watchPorts({
@@ -119,12 +130,14 @@ export async function main(
     onUpdate: (ports) => {
       updateEntry(entry.id, { ports });
       console.log(`ports: ${formatPorts(ports)}`);
+      notifyTuiRefresh();
     },
   });
 
   const result = await handle.wait;
   portWatcher.stop();
   markEntryStopped(entry.id);
+  notifyTuiRefresh();
 
   if (result.pid && debug) {
     console.log(`[debug] child exited (pid was ${result.pid})`);

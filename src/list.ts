@@ -1,36 +1,9 @@
+import { formatUptime } from "./format.js";
 import { formatPorts } from "./ports.js";
-import {
-  getRegistryPath,
-  loadRegistry,
-  pruneStaleEntries,
-  saveRegistry,
-} from "./registry.js";
-
-function formatUptime(startedAt: string): string {
-  const started = Date.parse(startedAt);
-  if (Number.isNaN(started)) {
-    return "unknown";
-  }
-
-  const seconds = Math.max(0, Math.floor((Date.now() - started) / 1000));
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
-}
+import { getRegistryPath, getRunningProjects } from "./registry.js";
 
 export function printProjectList(): void {
-  const pruned = pruneStaleEntries(loadRegistry());
-  saveRegistry(pruned);
-
-  const running = pruned.projects.filter((entry) => entry.status === "running");
+  const running = getRunningProjects();
 
   console.log(`registry: ${getRegistryPath()}`);
 

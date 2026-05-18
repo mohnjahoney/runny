@@ -61,6 +61,12 @@ export function pruneStaleEntries(registry: RegistryFile): RegistryFile {
   return { ...registry, projects };
 }
 
+export function getRunningProjects(): RegistryEntry[] {
+  const pruned = pruneStaleEntries(loadRegistry());
+  saveRegistry(pruned);
+  return pruned.projects.filter((entry) => entry.status === "running");
+}
+
 export function upsertRunningEntry(input: {
   name: string;
   cwd: string;
