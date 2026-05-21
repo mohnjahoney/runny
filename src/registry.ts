@@ -73,6 +73,7 @@ export function upsertRunningEntry(input: {
   command: string;
   kind: ProjectKind;
   pid: number;
+  ports?: number[];
 }): RegistryEntry {
   const registry = pruneStaleEntries(loadRegistry());
   const now = new Date().toISOString();
@@ -85,7 +86,7 @@ export function upsertRunningEntry(input: {
         command: input.command,
         kind: input.kind,
         pid: input.pid,
-        ports: [],
+        ports: input.ports ?? [],
         status: "running",
         startedAt: now,
         updatedAt: now,
@@ -97,7 +98,7 @@ export function upsertRunningEntry(input: {
         command: input.command,
         kind: input.kind,
         pid: input.pid,
-        ports: [],
+        ports: input.ports ?? [],
         status: "running",
         startedAt: now,
         updatedAt: now,

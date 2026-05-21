@@ -1,13 +1,11 @@
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
+import { openUrl } from "../browser.js";
 import { inferLaunchPlan } from "../inference.js";
 import { getCliScriptPath } from "../paths.js";
 import { killProcessTree } from "../process-tree.js";
 import type { RegistryEntry } from "../registry.js";
 import { markEntryStopped } from "../registry.js";
 import { notifyTuiRefresh } from "../tui/singleton.js";
-
-const execFileAsync = promisify(execFile);
 
 export type SortMode = "uptime-desc" | "uptime-asc" | "name" | "port";
 
@@ -80,7 +78,7 @@ export async function killProject(entry: RegistryEntry): Promise<string> {
 }
 
 export async function restartProject(entry: RegistryEntry): Promise<string> {
-  const plan = inferLaunchPlan(entry.cwd);
+  const plan = await inferLaunchPlan(entry.cwd);
   if (!plan) {
     return `cannot restart ${entry.name}: no launch command for ${entry.cwd}`;
   }
@@ -112,7 +110,7 @@ export async function openProjectInBrowser(
   }
 
   const url = `http://127.0.0.1:${port}`;
-  await execFileAsync("open", [url]);
+  await openUrl(url);
   return `opened ${url}`;
 }
 

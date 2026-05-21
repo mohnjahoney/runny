@@ -80,7 +80,7 @@ export async function main(
   restoreRegistryOnStartup(debug);
 
   const project = detectProjectContext();
-  const plan = inferLaunchPlan(project.cwd);
+  const plan = await inferLaunchPlan(project.cwd);
 
   printStartup({
     version: getVersion(),
@@ -89,6 +89,10 @@ export async function main(
     plan,
     dryRun,
   });
+
+  for (const notice of plan?.notices ?? []) {
+    console.log(`runny: ${notice}`);
+  }
 
   if (!plan) {
     console.error("");
@@ -107,7 +111,7 @@ export async function main(
   console.log(`starting: ${plan.command}`);
   console.log("");
 
-  return runProjectSession(project.cwd);
+  return runProjectSession(project.cwd, plan, { skipNotices: true });
 }
 
 main()

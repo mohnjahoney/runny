@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createServer } from "node:net";
 import { promisify } from "node:util";
 import { collectProcessTree } from "./process-tree.js";
 
@@ -13,31 +14,127 @@ export interface PortWatcherOptions {
   intervalMs?: number;
   maxAttempts?: number;
   onUpdate: (ports: number[]) => void;
+  onListenersUpdate?: (listeners: Listener[]) => void;
 }
 
-function parseListeningPorts(stdout: string): number[] {
-  const ports = new Set<number>();
+export interface FindAvailablePortOptions {
+  preferred?: number;
+  rangeStart: number;
+  rangeEnd: number;
+}
 
-  for (const line of stdout.split("\n")) {
-    const match = line.match(/:(\d+)\s+\(LISTEN\)/);
-    if (match) {
-      ports.add(Number(match[1]));
+export interface Listener {
+  pid: number;
+  host: string;
+  port: number;
+}
+
+export async function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+
+    server.once("error", () => {
+      resolve(false);
+    });
+
+    server.once("listening", () => {
+      server.close(() => {
+        resolve(true);
+      });
+    });
+
+    server.listen(port);
+  });
+}
+
+export async function findAvailablePort(
+  options: FindAvailablePortOptions,
+): Promise<number> {
+  const { preferred, rangeStart, rangeEnd } = options;
+
+  if (rangeStart > rangeEnd) {
+    throw new Error("Invalid port range: rangeStart must be <= rangeEnd");
+  }
+
+  if (
+    preferred !== undefined &&
+    preferred >= rangeStart &&
+    preferred <= rangeEnd &&
+    (await isPortAvailable(preferred))
+  ) {
+    return preferred;
+  }
+
+  for (let port = rangeStart; port <= rangeEnd; port += 1) {
+    if (port === preferred) {
+      continue;
+    }
+
+    if (await isPortAvailable(port)) {
+      return port;
     }
   }
 
-  return [...ports].sort((a, b) => a - b);
+  throw new Error(`No available port found in range ${rangeStart}-${rangeEnd}`);
+}
+
+function parseListeningListeners(pid: number, stdout: string): Listener[] {
+  const listeners: Listener[] = [];
+
+  for (const line of stdout.split("\n")) {
+    const match = line.match(/\bTCP\s+(.+):(\d+)\s+\(LISTEN\)/);
+    if (match) {
+      listeners.push({
+        pid,
+        host: normalizeListenerHost(match[1]),
+        port: Number(match[2]),
+      });
+    }
+  }
+
+  return listeners;
+}
+
+function normalizeListenerHost(host: string): string {
+  if (host.startsWith("[") && host.endsWith("]")) {
+    return host.slice(1, -1);
+  }
+
+  return host;
+}
+
+function portsFromListeners(listeners: Listener[]): number[] {
+  return [...new Set(listeners.map((listener) => listener.port))].sort(
+    (a, b) => a - b,
+  );
 }
 
 function portsEqual(a: number[], b: number[]): boolean {
   return a.length === b.length && a.every((port, index) => port === b[index]);
 }
 
-async function listListeningPortsForPids(pids: number[]): Promise<number[]> {
+function listenersEqual(a: Listener[], b: Listener[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((listener, index) => {
+      const other = b[index];
+      return (
+        listener.pid === other.pid &&
+        listener.host === other.host &&
+        listener.port === other.port
+      );
+    })
+  );
+}
+
+async function listListeningListenersForPids(
+  pids: number[],
+): Promise<Listener[]> {
   if (pids.length === 0) {
     return [];
   }
 
-  const ports = new Set<number>();
+  const listeners: Listener[] = [];
 
   for (const pid of pids) {
     try {
@@ -49,20 +146,32 @@ async function listListeningPortsForPids(pids: number[]): Promise<number[]> {
         "-p",
         String(pid),
       ]);
-      for (const port of parseListeningPorts(stdout)) {
-        ports.add(port);
-      }
+      listeners.push(...parseListeningListeners(pid, stdout));
     } catch {
       // No listeners for this pid.
     }
   }
 
-  return [...ports].sort((a, b) => a - b);
+  return listeners.sort(
+    (a, b) => a.port - b.port || a.host.localeCompare(b.host) || a.pid - b.pid,
+  );
+}
+
+async function listListeningPortsForPids(pids: number[]): Promise<number[]> {
+  const listeners = await listListeningListenersForPids(pids);
+  return portsFromListeners(listeners);
 }
 
 export async function detectPortsForProcess(rootPid: number): Promise<number[]> {
   const pids = await collectProcessTree(rootPid);
   return listListeningPortsForPids(pids);
+}
+
+export async function detectListenersForProcess(
+  rootPid: number,
+): Promise<Listener[]> {
+  const pids = await collectProcessTree(rootPid);
+  return listListeningListenersForPids(pids);
 }
 
 export function watchPorts(options: PortWatcherOptions): PortWatcher {
@@ -71,10 +180,12 @@ export function watchPorts(options: PortWatcherOptions): PortWatcher {
     intervalMs = 1_500,
     maxAttempts = 40,
     onUpdate,
+    onListenersUpdate,
   } = options;
 
   let stopped = false;
   let lastPorts: number[] = [];
+  let lastListeners: Listener[] = [];
   let attempts = 0;
 
   const tick = async (): Promise<void> => {
@@ -83,11 +194,17 @@ export function watchPorts(options: PortWatcherOptions): PortWatcher {
     }
 
     attempts += 1;
-    const ports = await detectPortsForProcess(rootPid);
+    const listeners = await detectListenersForProcess(rootPid);
+    const ports = portsFromListeners(listeners);
 
     if (!portsEqual(ports, lastPorts)) {
       lastPorts = ports;
       onUpdate(ports);
+    }
+
+    if (!listenersEqual(listeners, lastListeners)) {
+      lastListeners = listeners;
+      onListenersUpdate?.(listeners);
     }
 
     if (!stopped && (ports.length === 0 && attempts < maxAttempts)) {
