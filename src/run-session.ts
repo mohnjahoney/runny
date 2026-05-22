@@ -8,6 +8,7 @@ import {
   updateEntry,
   upsertRunningEntry,
 } from "./registry.js";
+import { ensureDashboardTerminal } from "./tui/launcher.js";
 import { notifyTuiRefresh } from "./tui/singleton.js";
 
 export async function runProjectSession(
@@ -46,6 +47,11 @@ export async function runProjectSession(
     console.log(`Local: http://localhost:${port}/`);
   }
   console.log(`PID: ${handle.pid}`);
+
+  ensureDashboardTerminal(project.cwd).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`runny: could not open dashboard terminal: ${message}`);
+  });
 
   let openedBrowser = false;
   const portWatcher = watchPorts({
