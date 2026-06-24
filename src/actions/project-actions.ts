@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { openUrl } from "../browser.js";
+import { chooseBrowserUrl, openUrl } from "../browser.js";
 import { inferLaunchPlan } from "../inference.js";
 import { getCliScriptPath } from "../paths.js";
+import { detectListenersForProcess } from "../ports.js";
 import { killProcessTree } from "../process-tree.js";
 import type { RegistryEntry } from "../registry.js";
 import { markEntryStopped } from "../registry.js";
@@ -78,6 +79,19 @@ export async function killProject(entry: RegistryEntry): Promise<string> {
 }
 
 export async function restartProject(entry: RegistryEntry): Promise<string> {
+  return restartProjectWithArgs(entry, []);
+}
+
+export async function restartProjectMobile(
+  entry: RegistryEntry,
+): Promise<string> {
+  return restartProjectWithArgs(entry, ["--mobile"]);
+}
+
+async function restartProjectWithArgs(
+  entry: RegistryEntry,
+  args: string[],
+): Promise<string> {
   const plan = await inferLaunchPlan(entry.cwd);
   if (!plan) {
     return `cannot restart ${entry.name}: no launch command for ${entry.cwd}`;
@@ -89,7 +103,7 @@ export async function restartProject(entry: RegistryEntry): Promise<string> {
   markEntryStopped(entry.id);
 
   const cliPath = getCliScriptPath();
-  const child = spawn(process.execPath, [cliPath], {
+  const child = spawn(process.execPath, [cliPath, ...args], {
     cwd: entry.cwd,
     detached: true,
     stdio: "ignore",
@@ -98,20 +112,30 @@ export async function restartProject(entry: RegistryEntry): Promise<string> {
 
   child.unref();
   notifyTuiRefresh();
-  return `restarting ${entry.name} (${plan.command})`;
+  const mode = args.includes("--mobile") ? " in mobile mode" : "";
+  return `restarting ${entry.name}${mode} (${plan.command})`;
 }
 
 export async function openProjectInBrowser(
   entry: RegistryEntry,
 ): Promise<string> {
-  const port = entry.ports[0];
-  if (!port) {
+  if (!entry.pid) {
+    return `no pid for ${entry.name}`;
+  }
+
+  const listeners = await detectListenersForProcess(entry.pid);
+  const decision = chooseBrowserUrl(listeners);
+
+  if (decision.type === "pending") {
     return `no port yet for ${entry.name}`;
   }
 
-  const url = `http://127.0.0.1:${port}`;
-  await openUrl(url);
-  return `opened ${url}`;
+  if (decision.type === "ambiguous") {
+    return `${decision.reason}; not opening browser`;
+  }
+
+  await openUrl(decision.url);
+  return `opened ${decision.url}`;
 }
 
 export function logsHint(entry: RegistryEntry): string {

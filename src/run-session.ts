@@ -14,7 +14,7 @@ import { notifyTuiRefresh } from "./tui/singleton.js";
 export async function runProjectSession(
   cwd: string = process.cwd(),
   inferredPlan?: LaunchPlan,
-  options: { skipNotices?: boolean } = {},
+  options: { skipNotices?: boolean; mobile?: boolean } = {},
 ): Promise<number> {
   const project = detectProjectContext(cwd);
   const plan = inferredPlan ?? (await inferLaunchPlan(cwd));
@@ -37,6 +37,7 @@ export async function runProjectSession(
     kind: plan.kind,
     pid: handle.pid,
     ports: plan.ports,
+    mobile: options.mobile && plan.kind === "vite",
   });
 
   notifyTuiRefresh();

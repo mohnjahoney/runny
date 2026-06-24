@@ -3,6 +3,7 @@
 import { printStartup } from "./debug.js";
 import { inferLaunchPlan } from "./inference.js";
 import { printProjectList } from "./list.js";
+import { applyMobileLaunchOptions } from "./mobile.js";
 import { runProjectSession } from "./run-session.js";
 import { detectProjectContext } from "./project.js";
 import {
@@ -18,7 +19,9 @@ function printHelp(): void {
 Usage:
   runny              Detect project and launch dev server
   runny dashboard    Open live TUI dashboard (singleton)
+  runny dash         Alias for dashboard
   runny list         Show active projects from the registry
+  runny --mobile     Launch Vite on the LAN for phone access
   runny --dry-run    Detect project and print launch command only
   runny --debug      Include debug details
   runny --help       Show this help
@@ -34,6 +37,7 @@ function parseArgs(argv: string[]): {
   dryRun: boolean;
   list: boolean;
   dashboard: boolean;
+  mobile: boolean;
 } {
   const debug =
     argv.includes("--debug") ||
@@ -41,9 +45,11 @@ function parseArgs(argv: string[]): {
     process.env.RUNNY_DEBUG === "1";
   const help = argv.includes("--help") || argv.includes("-h");
   const dryRun = argv.includes("--dry-run") || argv.includes("-n");
+  const mobile = argv.includes("--mobile") || argv.includes("-mobile");
   const list = argv[0] === "list";
-  const dashboard = argv[0] === "dashboard" || argv[0] === "ui";
-  return { debug, help, dryRun, list, dashboard };
+  const dashboard =
+    argv[0] === "dashboard" || argv[0] === "dash" || argv[0] === "ui";
+  return { debug, help, dryRun, list, dashboard, mobile };
 }
 
 function restoreRegistryOnStartup(debug: boolean): void {
@@ -60,7 +66,7 @@ function restoreRegistryOnStartup(debug: boolean): void {
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<number> {
-  const { debug, help, dryRun, list, dashboard } = parseArgs(argv);
+  const { debug, help, dryRun, list, dashboard, mobile } = parseArgs(argv);
 
   if (help) {
     printHelp();
@@ -80,7 +86,11 @@ export async function main(
   restoreRegistryOnStartup(debug);
 
   const project = detectProjectContext();
-  const plan = await inferLaunchPlan(project.cwd);
+  const inferredPlan = await inferLaunchPlan(project.cwd);
+  const plan =
+    mobile && inferredPlan
+      ? applyMobileLaunchOptions(inferredPlan)
+      : inferredPlan;
 
   printStartup({
     version: getVersion(),
@@ -111,7 +121,7 @@ export async function main(
   console.log(`starting: ${plan.command}`);
   console.log("");
 
-  return runProjectSession(project.cwd, plan, { skipNotices: true });
+  return runProjectSession(project.cwd, plan, { skipNotices: true, mobile });
 }
 
 main()

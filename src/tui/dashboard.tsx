@@ -1,17 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
+import qrcode from "qrcode-terminal";
 import {
   filterProjects,
   killProject,
   logsHint,
   nextSortMode,
   openProjectInBrowser,
+  restartProjectMobile,
   restartProject,
   sortModeLabel,
   sortProjects,
   type SortMode,
 } from "../actions/project-actions.js";
 import { formatUptime } from "../format.js";
+import { mobileUrlForPort } from "../mobile.js";
 import { formatPorts } from "../ports.js";
 import type { RegistryEntry } from "../registry.js";
 import { getRunningProjects } from "../registry.js";
@@ -34,14 +37,23 @@ function ProjectRow({
 }): React.ReactElement {
   const ports = formatPorts(entry.ports);
   const marker = selected ? "›" : " ";
+  const kind = entry.mobile ? `${entry.kind}-mobile` : entry.kind;
 
   return (
     <Text color={selected ? "cyan" : undefined}>
-      {marker} {truncate(entry.name, 14)} {truncate(entry.kind, 11)}{" "}
+      {marker} {truncate(entry.name, 14)} {truncate(kind, 11)}{" "}
       {String(entry.pid).padEnd(6)} {truncate(ports, 14)}{" "}
       {formatUptime(entry.startedAt).padEnd(8)} running
     </Text>
   );
+}
+
+function qrForUrl(url: string): string {
+  let qr = "";
+  qrcode.generate(url, { small: true }, (value) => {
+    qr = value;
+  });
+  return qr;
 }
 
 export function Dashboard(): React.ReactElement {
@@ -162,6 +174,11 @@ export function Dashboard(): React.ReactElement {
       return;
     }
 
+    if (input === "m") {
+      runAction(() => restartProjectMobile(selected));
+      return;
+    }
+
     if (input === "o") {
       runAction(() => openProjectInBrowser(selected));
       return;
@@ -174,13 +191,17 @@ export function Dashboard(): React.ReactElement {
 
   const selected = projects[selectedIndex];
   const filterLabel = filterQuery ? `filter: "${filterQuery}"` : "filter: off";
+  const selectedMobileUrl = selected?.mobile
+    ? mobileUrlForPort(selected.ports[0])
+    : null;
+  const selectedQr = selectedMobileUrl ? qrForUrl(selectedMobileUrl) : null;
 
   return (
     <Box flexDirection="column">
       <Text bold>runny dashboard</Text>
       <Text dimColor>
-        q quit · r refresh · x kill · R restart · o open · l logs · s sort · f
-        filter · / clear
+        q quit · r refresh · x kill · R restart · m mobile · o open · l logs
+        · s sort · f filter · / clear
       </Text>
       <Text dimColor>
         ↑↓/jk navigate · sort: {sortModeLabel(sortMode)} · {filterLabel}
@@ -212,6 +233,18 @@ export function Dashboard(): React.ReactElement {
           <Text dimColor>selected: {selected.name}</Text>
           <Text dimColor>cwd: {selected.cwd}</Text>
           <Text dimColor>command: {selected.command}</Text>
+          {selected.mobile ? (
+            selectedMobileUrl && selectedQr ? (
+              <Box flexDirection="column" marginTop={1}>
+                <Text color="green">mobile: {selectedMobileUrl}</Text>
+                <Text>{selectedQr}</Text>
+              </Box>
+            ) : (
+              <Text color="yellow">
+                mobile: waiting for a port and LAN address
+              </Text>
+            )
+          ) : null}
         </Box>
       ) : null}
       {status ? <Text color="yellow">{status}</Text> : null}

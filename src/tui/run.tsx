@@ -8,6 +8,10 @@ import {
   tryAcquireTuiLock,
 } from "./singleton.js";
 
+function clearTerminal(): void {
+  process.stdout.write("\x1b[3J\x1b[2J\x1b[H");
+}
+
 export async function runDashboard(): Promise<number> {
   if (isTuiRunning()) {
     notifyTuiRefresh();
@@ -21,6 +25,7 @@ export async function runDashboard(): Promise<number> {
     return 0;
   }
 
+  clearTerminal();
   const { waitUntilExit } = render(<Dashboard />);
 
   try {
