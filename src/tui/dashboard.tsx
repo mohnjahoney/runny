@@ -36,13 +36,14 @@ function ProjectRow({
   selected: boolean;
 }): React.ReactElement {
   const ports = formatPorts(entry.ports);
+  const name = entry.displayName ?? entry.name;
   const marker = selected ? "›" : " ";
   const kind = entry.mobile ? `${entry.kind}-mobile` : entry.kind;
 
   return (
     <Text color={selected ? "cyan" : undefined}>
-      {marker} {truncate(entry.name, 14)} {truncate(kind, 11)}{" "}
-      {String(entry.pid).padEnd(6)} {truncate(ports, 14)}{" "}
+      {marker} {truncate(name, 14)} {truncate(kind, 11)}{" "}
+      {String(entry.pid ?? "—").padEnd(6)} {truncate(ports, 14)}{" "}
       {formatUptime(entry.startedAt).padEnd(8)} running
     </Text>
   );
@@ -230,7 +231,9 @@ export function Dashboard(): React.ReactElement {
       <Text> </Text>
       {selected ? (
         <Box flexDirection="column">
-          <Text dimColor>selected: {selected.name}</Text>
+          <Text dimColor>
+            selected: {selected.displayName ?? selected.name}
+          </Text>
           <Text dimColor>cwd: {selected.cwd}</Text>
           <Text dimColor>command: {selected.command}</Text>
           {selected.mobile ? (

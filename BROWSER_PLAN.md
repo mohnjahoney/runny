@@ -13,8 +13,33 @@ The first useful version should make it easy to understand, open, refresh, resta
 - Keep technical details nearby but out of the top-level view.
 - Confirm actions so the user knows they happened.
 - Prefer one authoritative project tab over opening duplicates.
+- Let the initiating dashboard choose the browser instead of allowing a detached
+  process to open the system default independently.
 - Keep the engine independent of every interface.
 - Remain local-first, transparent, and safe.
+
+## Diagnosis, treatment, and resumed intent
+
+Runny should turn familiar local-development failures into a fluid recovery
+sequence:
+
+1. **Identify** a specific condition and report the evidence and confidence.
+2. **Offer treatment** as a named, reviewable action rather than an opaque fix.
+3. **Apply with consent** when the treatment changes files, installs software, or
+   affects an unowned process.
+4. **Verify** that the condition was resolved.
+5. **Continue the original intent** automatically, such as launching the project
+   after installing dependencies.
+
+The engine should return structured findings and known treatments. Individual
+views decide how to present them: a terminal prompt in the CLI, an in-place card
+or confirmation in the browser, and structured tool results for future agent
+integrations. Diagnostic rules and treatments must not live inside a view.
+
+The design should make the continuity visible without making recovery feel
+heavy: **Dependencies missing → Installing with npm → Installed → Launching →
+Running**. Confidence and evidence should remain available, while the recommended
+next action stays obvious.
 
 ## Architecture
 
@@ -91,6 +116,17 @@ The initial extension should:
 - Communicate only with the authenticated local Runny service
 
 The extension does not manage operating-system processes. Restart and Stop requests go to the local Runny engine, which owns process discovery, signaling, escalation, and verification.
+
+### Browser selection policy
+
+- When the dashboard has the Runny extension, Open and post-launch navigation
+  use that browser and reuse its matching project tab.
+- Without the extension, Runny falls back to the operating system's default
+  browser.
+- Dashboard-initiated launches and restarts suppress the detached CLI's automatic
+  browser opening so Safari or another default browser cannot race the initiating
+  view and create a duplicate.
+- Explicit browser selection or per-project browser preferences may be added later.
 
 ### Deferred extension capabilities
 

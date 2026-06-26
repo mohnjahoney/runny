@@ -14,7 +14,7 @@ export function printProjectList(): void {
 
   for (const entry of running) {
     console.log("");
-    console.log(`${entry.name}  (${entry.kind})`);
+    console.log(`${entry.displayName ?? entry.name}  (${entry.kind})`);
     console.log(`  cwd: ${entry.cwd}`);
     console.log(`  pid: ${entry.pid}`);
     console.log(`  ports: ${formatPorts(entry.ports)}`);

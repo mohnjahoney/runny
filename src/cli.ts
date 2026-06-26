@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 
+import { createInterface } from "node:readline/promises";
 import { printStartup } from "./debug.js";
 import { inferLaunchPlan } from "./inference.js";
 import { printProjectList } from "./list.js";
 import { applyMobileLaunchOptions } from "./mobile.js";
 import { runProjectSession } from "./run-session.js";
 import { detectProjectContext } from "./project.js";
+import {
+  applyLaunchTreatment,
+  inspectLaunchReadiness,
+  type LaunchFinding,
+} from "./readiness.js";
 import {
   loadRegistry,
   pruneStaleEntries,
@@ -20,6 +26,7 @@ Usage:
   runny              Detect project and launch dev server
   runny dashboard    Open live TUI dashboard (singleton)
   runny dash         Alias for dashboard
+  runny web          Open the browser dashboard
   runny list         Show active projects from the registry
   runny --mobile     Launch Vite on the LAN for phone access
   runny --dry-run    Detect project and print launch command only
@@ -37,6 +44,7 @@ function parseArgs(argv: string[]): {
   dryRun: boolean;
   list: boolean;
   dashboard: boolean;
+  web: boolean;
   mobile: boolean;
 } {
   const debug =
@@ -49,7 +57,8 @@ function parseArgs(argv: string[]): {
   const list = argv[0] === "list";
   const dashboard =
     argv[0] === "dashboard" || argv[0] === "dash" || argv[0] === "ui";
-  return { debug, help, dryRun, list, dashboard, mobile };
+  const web = argv[0] === "web" || argv[0] === "browser";
+  return { debug, help, dryRun, list, dashboard, web, mobile };
 }
 
 function restoreRegistryOnStartup(debug: boolean): void {
@@ -63,10 +72,53 @@ function restoreRegistryOnStartup(debug: boolean): void {
   }
 }
 
+async function offerLaunchTreatment(
+  finding: LaunchFinding,
+  projectCwd: string,
+): Promise<boolean> {
+  console.log("");
+  console.log(
+    `runny: ${finding.title} (${finding.confidence} confidence)`,
+  );
+  for (const evidence of finding.evidence) {
+    console.log(`  • ${evidence}`);
+  }
+
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.error(`runny: ${finding.detail}`);
+    return false;
+  }
+
+  if (!finding.treatment) {
+    console.error(`runny: ${finding.detail}`);
+    return false;
+  }
+
+  const prompt = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await prompt.question(`${finding.detail} [y/N] `);
+    if (!/^(y|yes)$/i.test(answer.trim())) return false;
+  } finally {
+    prompt.close();
+  }
+
+  console.log(`runny: applying treatment — ${finding.treatment.label}`);
+  await applyLaunchTreatment(finding.treatment);
+
+  const remaining = inspectLaunchReadiness(projectCwd);
+  if (remaining) {
+    throw new Error(
+      "dependency installation finished, but the project still appears unprepared",
+    );
+  }
+  console.log("runny: dependencies installed — continuing launch");
+  return true;
+}
+
 export async function main(
   argv: string[] = process.argv.slice(2),
 ): Promise<number> {
-  const { debug, help, dryRun, list, dashboard, mobile } = parseArgs(argv);
+  const { debug, help, dryRun, list, dashboard, web, mobile } = parseArgs(argv);
 
   if (help) {
     printHelp();
@@ -81,6 +133,11 @@ export async function main(
   if (dashboard) {
     const { runDashboard } = await import("./tui/run.js");
     return runDashboard();
+  }
+
+  if (web) {
+    const { runWebDashboard } = await import("./web/server.js");
+    return runWebDashboard();
   }
 
   restoreRegistryOnStartup(debug);
@@ -115,6 +172,12 @@ export async function main(
 
   if (dryRun) {
     return 0;
+  }
+
+  const finding = inspectLaunchReadiness(project.cwd);
+  if (finding && !(await offerLaunchTreatment(finding, project.cwd))) {
+    console.error("runny: launch cancelled; dependencies were not installed");
+    return 1;
   }
 
   console.log("");

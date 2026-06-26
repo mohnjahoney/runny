@@ -10,10 +10,11 @@ export type ProjectStatus = "running" | "stopped";
 export interface RegistryEntry {
   id: string;
   name: string;
+  displayName?: string;
   cwd: string;
   command: string;
   kind: ProjectKind;
-  pid: number;
+  pid?: number;
   ports: number[];
   mobile?: boolean;
   status: ProjectStatus;
@@ -22,7 +23,7 @@ export interface RegistryEntry {
 }
 
 export interface RegistryFile {
-  version: 1;
+  version: 2;
   projects: RegistryEntry[];
 }
 
@@ -30,17 +31,23 @@ const REGISTRY_DIR = join(homedir(), ".runny");
 const REGISTRY_PATH = join(REGISTRY_DIR, "registry.json");
 
 function emptyRegistry(): RegistryFile {
-  return { version: 1, projects: [] };
+  return { version: 2, projects: [] };
 }
 
 export function loadRegistry(): RegistryFile {
   try {
     const raw = readFileSync(REGISTRY_PATH, "utf8");
-    const parsed = JSON.parse(raw) as RegistryFile;
-    if (parsed.version !== 1 || !Array.isArray(parsed.projects)) {
+    const parsed = JSON.parse(raw) as {
+      version?: number;
+      projects?: RegistryEntry[];
+    };
+    if (
+      (parsed.version !== 1 && parsed.version !== 2) ||
+      !Array.isArray(parsed.projects)
+    ) {
       return emptyRegistry();
     }
-    return parsed;
+    return { version: 2, projects: parsed.projects };
   } catch {
     return emptyRegistry();
   }
@@ -52,20 +59,33 @@ export function saveRegistry(registry: RegistryFile): void {
 }
 
 export function pruneStaleEntries(registry: RegistryFile): RegistryFile {
-  const projects = registry.projects.filter((entry) => {
-    if (entry.status !== "running") {
-      return false;
+  const projects = registry.projects.map((entry) => {
+    if (
+      entry.status === "running" &&
+      (entry.pid === undefined || !isProcessAlive(entry.pid))
+    ) {
+      return {
+        ...entry,
+        pid: undefined,
+        ports: [],
+        status: "stopped" as const,
+        updatedAt: new Date().toISOString(),
+      };
     }
-    return isProcessAlive(entry.pid);
+    return entry;
   });
 
-  return { ...registry, projects };
+  return { version: 2, projects };
+}
+
+export function getProjects(): RegistryEntry[] {
+  const reconciled = pruneStaleEntries(loadRegistry());
+  saveRegistry(reconciled);
+  return reconciled.projects;
 }
 
 export function getRunningProjects(): RegistryEntry[] {
-  const pruned = pruneStaleEntries(loadRegistry());
-  saveRegistry(pruned);
-  return pruned.projects.filter((entry) => entry.status === "running");
+  return getProjects().filter((entry) => entry.status === "running");
 }
 
 export function upsertRunningEntry(input: {
@@ -109,13 +129,50 @@ export function upsertRunningEntry(input: {
       };
 
   const others = registry.projects.filter((project) => project.id !== entry.id);
-  saveRegistry({ version: 1, projects: [...others, entry] });
+  saveRegistry({ version: 2, projects: [...others, entry] });
+  return entry;
+}
+
+export function upsertKnownProject(input: {
+  name: string;
+  cwd: string;
+  command: string;
+  kind: ProjectKind;
+}): RegistryEntry {
+  const registry = pruneStaleEntries(loadRegistry());
+  const now = new Date().toISOString();
+  const existing = registry.projects.find((entry) => entry.cwd === input.cwd);
+
+  const entry: RegistryEntry = existing
+    ? {
+        ...existing,
+        name: input.name,
+        command: input.command,
+        kind: input.kind,
+        updatedAt: now,
+      }
+    : {
+        id: randomUUID(),
+        name: input.name,
+        cwd: input.cwd,
+        command: input.command,
+        kind: input.kind,
+        ports: [],
+        status: "stopped",
+        startedAt: now,
+        updatedAt: now,
+      };
+
+  const others = registry.projects.filter((project) => project.id !== entry.id);
+  saveRegistry({ version: 2, projects: [...others, entry] });
   return entry;
 }
 
 export function updateEntry(
   id: string,
-  patch: Partial<Pick<RegistryEntry, "ports" | "pid" | "status">>,
+  patch: Partial<
+    Pick<RegistryEntry, "displayName" | "ports" | "pid" | "status">
+  >,
 ): void {
   const registry = loadRegistry();
   const projects = registry.projects.map((entry) => {
@@ -134,12 +191,16 @@ export function updateEntry(
 }
 
 export function markEntryStopped(id: string): void {
-  updateEntry(id, { status: "stopped", ports: [] });
-  const registry = loadRegistry();
-  const projects = registry.projects.filter(
-    (entry) => !(entry.status === "stopped" && entry.id === id),
-  );
-  saveRegistry({ ...registry, projects });
+  updateEntry(id, { status: "stopped", pid: undefined, ports: [] });
+}
+
+export function renameProject(id: string, displayName?: string): void {
+  const normalized = displayName?.trim() || undefined;
+  updateEntry(id, { displayName: normalized });
+}
+
+export function getProject(id: string): RegistryEntry | undefined {
+  return getProjects().find((entry) => entry.id === id);
 }
 
 export function getRegistryPath(): string {

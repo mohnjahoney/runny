@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Runny Browser Controls",
+  "version": "0.1.1",
+  "description": "Focus and refresh local project tabs from the Runny dashboard.",
+  "permissions": ["storage", "tabs", "webNavigation"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://127.0.0.1/*"],
+      "js": ["dashboard-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Runny Browser Controls"
+  }
+}

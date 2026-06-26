@@ -14,7 +14,7 @@ import { notifyTuiRefresh } from "./tui/singleton.js";
 export async function runProjectSession(
   cwd: string = process.cwd(),
   inferredPlan?: LaunchPlan,
-  options: { skipNotices?: boolean; mobile?: boolean } = {},
+  options: { skipNotices?: boolean; mobile?: boolean; openBrowser?: boolean } = {},
 ): Promise<number> {
   const project = detectProjectContext(cwd);
   const plan = inferredPlan ?? (await inferLaunchPlan(cwd));
@@ -54,7 +54,9 @@ export async function runProjectSession(
     console.warn(`runny: could not open dashboard terminal: ${message}`);
   });
 
-  let openedBrowser = false;
+  const shouldOpenBrowser =
+    options.openBrowser ?? process.env.RUNNY_SKIP_BROWSER_OPEN !== "1";
+  let openedBrowser = !shouldOpenBrowser;
   const portWatcher = watchPorts({
     rootPid: handle.pid,
     onUpdate: (ports) => {
